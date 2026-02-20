@@ -1,0 +1,260 @@
+-- ── Extensions ────────────────────────────────────────────────────────────────
+
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS vector;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- AUTH
+-- ─────────────────────────────────────────────────────────────────────────────
+
+CREATE TABLE users (
+    id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    clerk_id    TEXT UNIQUE NOT NULL,
+    email       TEXT UNIQUE NOT NULL,
+    phone       TEXT,
+    created_at  TIMESTAMPTZ DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- USER PROFILE
+-- ─────────────────────────────────────────────────────────────────────────────
+
+CREATE TABLE user_profiles (
+    id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id     UUID UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name        TEXT,
+    age         INT,
+    gender      TEXT,
+    skin_type   TEXT,
+    allergies   TEXT[]  DEFAULT '{}',
+    conditions  TEXT[]  DEFAULT '{}',
+    created_at  TIMESTAMPTZ DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- ORACLE OBJECT STORAGE
+-- ─────────────────────────────────────────────────────────────────────────────
+
+CREATE TABLE images (
+    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    oracle_bucket   TEXT NOT NULL,
+    oracle_key      TEXT NOT NULL,
+    url             TEXT NOT NULL,
+    scan_type       TEXT NOT NULL,  -- 'label' | 'ingredients' | 'prescription'
+    mime_type       TEXT DEFAULT 'image/jpeg',
+    size_bytes      INT,
+    uploaded_at     TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_images_user_id ON images(user_id);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- PRODUCTS
+-- One product row ties a label scan + ingredients scan together
+-- Created when user scans a label or ingredients — both point to same product
+-- ─────────────────────────────────────────────────────────────────────────────
+
+CREATE TABLE products (
+    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    product_type    TEXT,                   -- 'medication' | 'food' | 'makeup' | 'unknown'
+    product_name    TEXT,
+    brand           TEXT,
+    manufacturer    TEXT,
+    created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_products_user_id ON products(user_id);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- SCAN HISTORY
+-- Every scan links to a product (for label/ingredients) or stands alone (prescription)
+-- ─────────────────────────────────────────────────────────────────────────────
+
+CREATE TABLE scan_history (
+    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    image_id        UUID REFERENCES images(id) ON DELETE SET NULL,
+    product_id      UUID REFERENCES products(id) ON DELETE SET NULL,  -- null for prescriptions
+    scan_type       TEXT NOT NULL,          -- 'label' | 'ingredients' | 'prescription'
+    raw_ocr_text    TEXT,
+    parsed_result   JSONB NOT NULL,
+    embedding       vector(384),
+    confidence      TEXT,
+    scanned_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_scan_history_user_id   ON scan_history(user_id);
+CREATE INDEX idx_scan_history_product   ON scan_history(product_id);
+CREATE INDEX idx_scan_history_type      ON scan_history(scan_type);
+CREATE INDEX idx_scan_history_embedding ON scan_history
+    USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- LABELS  (Flow 1.1)
+-- Always linked to a product
+-- ─────────────────────────────────────────────────────────────────────────────
+
+CREATE TABLE scanned_labels (
+    id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    scan_id             UUID UNIQUE NOT NULL REFERENCES scan_history(id) ON DELETE CASCADE,
+    product_id          UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    user_id             UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    expiry_date         TEXT,
+    batch_info          TEXT,
+    usage_directions    TEXT,
+    warnings            TEXT[] DEFAULT '{}',
+    scanned_at          TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_scanned_labels_product_id ON scanned_labels(product_id);
+CREATE INDEX idx_scanned_labels_user_id    ON scanned_labels(user_id);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- INGREDIENTS  (Flow 1.2)
+-- Always linked to same product as its label
+-- One row per ingredient — not one row per scan
+-- ─────────────────────────────────────────────────────────────────────────────
+
+CREATE TABLE scanned_ingredients (
+    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    scan_id         UUID NOT NULL REFERENCES scan_history(id) ON DELETE CASCADE,
+    product_id      UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name            TEXT NOT NULL,
+    purpose         TEXT,
+    is_allergen     BOOLEAN DEFAULT FALSE,
+    scanned_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_ingredients_product_id ON scanned_ingredients(product_id);
+CREATE INDEX idx_ingredients_user_id    ON scanned_ingredients(user_id);
+CREATE INDEX idx_ingredients_allergen   ON scanned_ingredients(user_id, is_allergen);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- MEDICATIONS  (standalone — the source of truth for all meds)
+-- A medication row can come from TWO sources:
+--   1. Scanned prescription  → prescription_id is set
+--   2. Scanned label (OTC)   → product_id is set, prescription_id is null
+-- ─────────────────────────────────────────────────────────────────────────────
+
+CREATE TABLE medications (
+    id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id             UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    -- source linkage — one of these will be set, not both
+    prescription_id     UUID REFERENCES scanned_prescriptions(id) ON DELETE SET NULL,
+    product_id          UUID REFERENCES products(id) ON DELETE SET NULL,
+    -- medication details
+    name                TEXT NOT NULL,
+    dosage              TEXT,
+    frequency           TEXT,
+    duration            TEXT,
+    instructions        TEXT,
+    -- classification
+    source              TEXT NOT NULL,      -- 'prescription' | 'otc_label'
+    added_at            TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_medications_user_id         ON medications(user_id);
+CREATE INDEX idx_medications_prescription_id ON medications(prescription_id);
+CREATE INDEX idx_medications_product_id      ON medications(product_id);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- PRESCRIPTIONS  (Flow 2.1)
+-- Medications from prescriptions link back here via prescription_id
+-- ─────────────────────────────────────────────────────────────────────────────
+
+CREATE TABLE scanned_prescriptions (
+    id                      UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    scan_id                 UUID UNIQUE NOT NULL REFERENCES scan_history(id) ON DELETE CASCADE,
+    user_id                 UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    hospital_name           TEXT,
+    doctor_name             TEXT,
+    doctor_specialization   TEXT,
+    doctor_contact          TEXT,
+    patient_name            TEXT,
+    diagnosis               TEXT,
+    prescription_date       TEXT,
+    refills                 TEXT,
+    scanned_at              TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_prescriptions_user_id ON scanned_prescriptions(user_id);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- ALLERGEN FLAGS
+-- ─────────────────────────────────────────────────────────────────────────────
+
+CREATE TABLE allergen_flags (
+    id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    scan_id     UUID NOT NULL REFERENCES scan_history(id) ON DELETE CASCADE,
+    allergen    TEXT NOT NULL,
+    found_in    TEXT NOT NULL,
+    flagged_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_allergen_flags_user_id ON allergen_flags(user_id);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- USER SUMMARIES  (injected into model prompt)
+-- ─────────────────────────────────────────────────────────────────────────────
+
+CREATE TABLE user_summaries (
+    user_id                 UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    recent_medications      JSONB DEFAULT '[]',     -- last 10 (prescription + OTC combined)
+    recent_food             JSONB DEFAULT '[]',
+    recent_makeup           JSONB DEFAULT '[]',
+    recent_prescriptions    JSONB DEFAULT '[]',
+    flagged_ingredients     TEXT[] DEFAULT '{}',
+    last_updated            TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- RECOMMENDATIONS
+-- ─────────────────────────────────────────────────────────────────────────────
+
+CREATE TABLE recommendations (
+    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    scan_id         UUID REFERENCES scan_history(id) ON DELETE SET NULL,
+    recommendation  TEXT NOT NULL,
+    warnings        TEXT[] DEFAULT '{}',
+    safe_to_use     BOOLEAN,
+    reasoning       TEXT,
+    created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_recommendations_user_id ON recommendations(user_id);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- USEFUL QUERIES
+-- ─────────────────────────────────────────────────────────────────────────────
+
+-- Get full product detail (label + ingredients in one shot)
+-- SELECT p.*, sl.*, si.*
+-- FROM products p
+-- LEFT JOIN scanned_labels sl      ON sl.product_id = p.id
+-- LEFT JOIN scanned_ingredients si ON si.product_id = p.id
+-- WHERE p.id = $1;
+
+-- Get all medications for a user regardless of source
+-- SELECT m.*, sp.doctor_name, sp.hospital_name
+-- FROM medications m
+-- LEFT JOIN scanned_prescriptions sp ON sp.id = m.prescription_id
+-- WHERE m.user_id = $1
+-- ORDER BY m.added_at DESC;
+
+-- Get all OTC medications (from label scans, no prescription)
+-- SELECT * FROM medications
+-- WHERE user_id = $1 AND source = 'otc_label';
+
+-- Get all prescribed medications with doctor info
+-- SELECT m.*, sp.doctor_name, sp.hospital_name, sp.prescription_date
+-- FROM medications m
+-- JOIN scanned_prescriptions sp ON sp.id = m.prescription_id
+-- WHERE m.user_id = $1;
+-- ```
