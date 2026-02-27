@@ -96,3 +96,136 @@ Nest is an MIT-licensed open source project. It can grow thanks to the sponsors 
 ## License
 
 Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+
+
+# Be-U Social Media API (NestJS + Fastify)
+
+A high-performance, low-memory backend for a beauty and food product social platform. This API is aggressively optimized to run on an Oracle Cloud Infrastructure (OCI) Always Free tier (1GB RAM) using Domain-Driven Design (DDD), a connection pooler, and cloud-native storage solutions.
+
+## 🚀 Tech Stack
+
+* **Framework:** [NestJS](https://nestjs.com/) (Switched from Express to **Fastify** for lower memory footprint and faster request handling)
+
+* **Compiler:** [SWC](https://swc.rs/) (Rust-based, compiles 20x faster)
+
+* **Database ORM:** [Drizzle ORM](https://orm.drizzle.team/)
+
+* **Database:** PostgreSQL (External connection via Pooler to save server RAM)
+
+* **Image Storage:** Cloudinary / Oracle Object Storage (Off-server storage)
+
+* **AI Memory (Vector DB):** Qdrant Cloud or Supabase `pgvector` (For 3-tiered LLM contextual memory)
+
+## 🏗️ Project Architecture (Domain-Driven Design)
+
+To keep the application modular and scalable, features are isolated into specific domains:
+
+```text
+src/
+├── app.module.ts
+├── core/                  # Global app config, Exception Filters, and Logger
+├── database/              # Drizzle ORM schema, migrations, and external Postgres connection
+│   ├── database.module.ts
+│   └── schema.ts          # Centralized definition of Users, Posts, etc.
+├── main.ts                # Fastify bootstrap entry point (Binds to 0.0.0.0)
+└── modules/               
+    ├── ai-memory/         # LLM context retrieval and vector DB integration
+    ├── auth/              # JWT strategies, login/signup
+    ├── media/             # Off-server image upload services
+    ├── posts/             # Beauty & food product feeds
+    └── users/             # User profiles and follower graph
+
+
+
+    ☁️ Infrastructure Setup (OCI 1GB RAM Survival Guide)
+
+If deploying to a fresh Oracle VM.Standard.E2.1.Micro instance, the following OS-level configurations are mandatory to prevent crashes.
+
+1. Enable the 4GB Swap File
+
+NestJS and NPM require more than 1GB of RAM to compile and install dependencies. The swap file acts as emergency overflow memory.
+
+sudo fallocate -l 4G /swapfile
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+
+
+2. Bypass the "Oracle iptables Trap"
+
+Oracle’s default Ubuntu image has a REJECT all rule at position 5 that blocks HTTP/HTTPS and custom ports. You must insert your application ports above this rule.
+
+sudo apt update && sudo apt install iptables-persistent netfilter-persistent -y
+sudo iptables -I INPUT 5 -p tcp --dport 3000 -j ACCEPT
+sudo iptables -I INPUT 5 -p tcp --dport 80 -j ACCEPT
+sudo iptables -I INPUT 5 -p tcp --dport 443 -j ACCEPT
+sudo netfilter-persistent save
+
+
+3. Python 3.11 Virtual Environment (For AI/Utility Scripts)
+
+sudo add-apt-repository ppa:deadsnakes/ppa -y
+sudo apt install python3.11 python3.11-venv python3.11-dev -y
+python3.11 -m venv ai_env
+source ai_env/bin/activate
+
+
+💻 Local Development & Setup
+
+1. Install Dependencies
+
+npm install
+
+
+2. Environment Variables
+
+Create a .env file in the root directory. Note: Always use the "Pooled" connection string (e.g., port 6543) for your external PostgreSQL database.
+
+DATABASE_URL=postgresql://user:password@pooler-endpoint.provider.com:6543/dbname?sslmode=require
+PORT=3000
+
+
+3. Database Migrations (Drizzle ORM)
+
+Whenever you update src/database/schema.ts (e.g., adding new fields to the beauty or food post models), run:
+
+# Push schema directly to the database (Fast prototyping)
+npx drizzle-kit push
+
+# Generate migration files (Production safe)
+npx drizzle-kit generate
+
+
+4. Run the Server
+
+# Development mode (Uses SWC compiler)
+npm run start:dev
+
+
+🚀 Production Deployment (PM2 Memory Guard)
+
+Do not run standard clustering in production on the 1GB server. We use PM2 with a strict max_memory_restart limit to prevent Linux Out-Of-Memory (OOM) kills.
+
+Ensure ecosystem.config.js is present in the root directory:
+
+module.exports = {
+  apps: [{
+    name: "social-api",
+    script: "dist/main.js",
+    instances: 1,
+    exec_mode: "fork",
+    max_memory_restart: "600M",
+    env: { NODE_ENV: "production" }
+  }]
+}
+
+
+Build and start:
+
+npm run build
+pm2 start ecosystem.config.js
+pm2 save
+pm2 startup
+
+
