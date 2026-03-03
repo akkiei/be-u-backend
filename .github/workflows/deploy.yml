@@ -1,0 +1,116 @@
+# .github/workflows/deploy.yml
+name: Build & Deploy to Oracle
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  NODE_VERSION: '20'
+  APP_DIR: /home/${{ secrets.ORACLE_USER }}/app
+  APP_NAME: social-backend # Must match your pm2 ecosystem name
+
+jobs:
+  # ─────────────────────────────────────────
+  # JOB 1: Build & Test
+  # ─────────────────────────────────────────
+  build-and-test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run linter
+        run: npm run lint
+
+      - name: Run tests
+        run: npm run test
+
+      - name: Build app
+        run: npm run build
+
+      # Upload the compiled dist + necessary files as an artifact
+      # so the deploy job doesn't need to rebuild
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-output
+          path: |
+            dist/
+            package.json
+            package-lock.json
+            ecosystem.config.js
+          retention-days: 1
+
+  # ─────────────────────────────────────────
+  # JOB 2: Deploy (only on push to main)
+  # ─────────────────────────────────────────
+  deploy:
+    name: Deploy to Oracle
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment: production # Optional: adds manual approval gate in GitHub
+
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: build-output
+
+      - name: Setup SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.ORACLE_SSH_KEY }}
+
+      - name: Add host to known_hosts
+        run: |
+          ssh-keyscan -p ${{ secrets.ORACLE_PORT }} ${{ secrets.ORACLE_HOST }} >> ~/.ssh/known_hosts
+
+      # Sync only the built files to the server (fast, no full git clone)
+      - name: Sync files to server
+        run: |
+          rsync -avz --delete \
+            --exclude='.git' \
+            --exclude='node_modules' \
+            ./ ${{ secrets.ORACLE_USER }}@${{ secrets.ORACLE_HOST }}:${{ env.APP_DIR }}
+
+      - name: Deploy on server
+        run: |
+          ssh -p ${{ secrets.ORACLE_PORT }} ${{ secrets.ORACLE_USER }}@${{ secrets.ORACLE_HOST }} << 'EOF'
+            set -e
+            cd ${{ env.APP_DIR }}
+
+            # Decode and write .env file
+            echo "${{ secrets.APP_ENV_VARS }}" | base64 -d > .env
+
+            # Install only production dependencies
+            npm ci --omit=dev
+
+            # Run Drizzle migrations
+            npx drizzle-kit migrate
+
+            # Reload app with PM2 (zero downtime)
+            pm2 reload ${{ env.APP_NAME }} --update-env || pm2 start ecosystem.config.js
+
+            # Save PM2 process list (survives reboots)
+            pm2 save
+          EOF
+
+      - name: Verify deployment
+        run: |
+          ssh -p ${{ secrets.ORACLE_PORT }} ${{ secrets.ORACLE_USER }}@${{ secrets.ORACLE_HOST }} \
+            "pm2 show ${{ env.APP_NAME }} | grep 'status'"
