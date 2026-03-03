@@ -88,6 +88,9 @@ jobs:
           rsync -avz --delete \
             --exclude='.git' \
             --exclude='node_modules' \
+            --exclude='.npm-lock-hash' \
+            --exclude='.env' \
+            --exclude='logs/' \
             ./ ${{ secrets.ORACLE_USER }}@${{ secrets.ORACLE_HOST }}:${{ env.APP_DIR }}
 
       - name: Deploy on server
