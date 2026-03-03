@@ -107,11 +107,14 @@ jobs:
             # Decode and write .env file
             echo "${{ secrets.APP_ENV_VARS }}" | base64 -d > .env
 
-            # Install only production dependencies
-            npm ci --omit=dev
+            # Install all dependencies (needed for drizzle-kit migrations)
+            npm ci
 
             # Run Drizzle migrations
             npx drizzle-kit migrate --config=drizzle.config.ts
+
+            # Remove dev dependencies after migrations to save RAM
+            npm prune --omit=dev
 
             # Reload app with PM2 (zero downtime)
             pm2 reload ${{ env.APP_NAME }} --update-env || pm2 start ecosystem.config.js
