@@ -129,7 +129,8 @@ jobs:
             npm prune --omit=dev
 
             # Reload app with PM2 (zero downtime)
-            pm2 reload ${{ env.APP_NAME }} --update-env || pm2 start ecosystem.config.js
+            pm2 delete ${{ env.APP_NAME }} 2>/dev/null || true
+            pm2 start ecosystem.config.js
 
             # Save PM2 process list (survives reboots)
             pm2 save
