@@ -141,4 +141,4 @@ jobs:
             -o ServerAliveInterval=30 \
             -o ServerAliveCountMax=20 \
             ${{ secrets.ORACLE_USER }}@${{ secrets.ORACLE_HOST }} \
-            "export NVM_DIR=\$HOME/.nvm && [ -s \$NVM_DIR/nvm.sh ] && \. \$NVM_DIR/nvm.sh && pm2 show ${{ env.APP_NAME }} | grep 'status' && sleep 3 && curl -sf http://localhost:3000 > /dev/null && echo '✅ App is responding' || echo '⚠️ App not responding on port 3000'"
+            "export NVM_DIR=\$HOME/.nvm && [ -s \$NVM_DIR/nvm.sh ] && \. \$NVM_DIR/nvm.sh && pm2 show ${{ env.APP_NAME }} | grep 'status' && sleep 3 && curl -sf http://localhost:3000/health > /dev/null && echo '✅ App is responding' || echo '⚠️ App not responding on port 3000'"
