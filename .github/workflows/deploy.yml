@@ -10,7 +10,7 @@ on:
 env:
   NODE_VERSION: '20'
   APP_DIR: /home/${{ secrets.ORACLE_USER }}/app
-  APP_NAME: social-backend # Must match your pm2 ecosystem name
+  APP_NAME: social-backend
 
 jobs:
   # ─────────────────────────────────────────
@@ -42,8 +42,6 @@ jobs:
       - name: Build app
         run: npm run build
 
-      # Upload the compiled dist + necessary files as an artifact
-      # so the deploy job doesn't need to rebuild
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
@@ -65,7 +63,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: build-and-test
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    environment: production # Optional: adds manual approval gate in GitHub
+    environment: production
 
     steps:
       - name: Download build artifact
@@ -82,7 +80,6 @@ jobs:
         run: |
           ssh-keyscan -p ${{ secrets.ORACLE_PORT }} ${{ secrets.ORACLE_HOST }} >> ~/.ssh/known_hosts
 
-      # Sync only the built files to the server (fast, no full git clone)
       - name: Sync files to server
         run: |
           rsync -avz --delete \
@@ -103,7 +100,7 @@ jobs:
             ${{ secrets.ORACLE_USER }}@${{ secrets.ORACLE_HOST }} << 'EOF'
             set -e
 
-            # Load NVM so npm/node/pm2 are available in non-interactive SSH sessions
+            # Load NVM
             export NVM_DIR="$HOME/.nvm"
             [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
 
@@ -113,30 +110,30 @@ jobs:
             echo "${{ secrets.APP_ENV_VARS }}" | base64 -d > .env
 
             echo "✅ Connected to server"
-              echo "📦 Checking dependencies..."
-              LOCK_HASH=$(md5sum package-lock.json | awk '{print $1}')
-              PREV_HASH=$(cat .npm-lock-hash 2>/dev/null || echo "")
 
-              if [ "$LOCK_HASH" != "$PREV_HASH" ]; then
-                echo "🔄 Dependencies changed, running npm ci..."
-                npm ci --progress=true 2>&1
-                echo "$LOCK_HASH" > .npm-lock-hash
-              else
-                echo "⚡ Dependencies unchanged, skipping npm ci"
-              fi
+            # Cache node_modules using package-lock.json hash
+            LOCK_HASH=$(md5sum package-lock.json | awk '{print $1}')
+            PREV_HASH=$(cat .npm-lock-hash 2>/dev/null || echo "")
 
-            # Run Drizzle migrations
-            npx drizzle-kit migrate --config=drizzle.config.ts
+            if [ "$LOCK_HASH" != "$PREV_HASH" ]; then
+              echo "🔄 Dependencies changed, running npm ci..."
+              npm ci --omit=dev --progress=true 2>&1
+              echo "$LOCK_HASH" > .npm-lock-hash
+            else
+              echo "⚡ Dependencies unchanged, skipping npm ci"
+            fi
 
-            # Remove dev dependencies after migrations to save RAM
-            npm prune --omit=dev
+            echo "🗄️ Running Drizzle migrations..."
+            ./node_modules/.bin/drizzle-kit migrate --config=drizzle.config.ts
 
-            # Reload app with PM2 (zero downtime)
+            echo "🚀 Restarting app with PM2..."
             pm2 delete ${{ env.APP_NAME }} 2>/dev/null || true
             pm2 start ecosystem.config.js
 
-            # Save PM2 process list (survives reboots)
+            echo "💾 Saving PM2 process list..."
             pm2 save
+
+            echo "✅ Deployment complete!"
           EOF
 
       - name: Verify deployment
