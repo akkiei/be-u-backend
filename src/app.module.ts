@@ -6,6 +6,7 @@ import { UsersModule } from './modules/users/users.module';
 import { ClerkAuthGuard } from './core/guards/clerk-auth.guard';
 import { AttachUserInterceptor } from './core/interceptors/attach-user.interceptor';
 import { UploadModule } from './modules/imageUploads/upload.module';
+import { AppController } from './app.controller';
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { UploadModule } from './modules/imageUploads/upload.module';
     UploadModule,
     // ... other modules
   ],
+  controllers: [AppController],
   providers: [
     // ClerkAuthGuard runs on EVERY request globally
     // use @Public() decorator to opt out per route
