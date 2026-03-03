@@ -54,7 +54,7 @@ jobs:
             package-lock.json
             ecosystem.config.js
             drizzle.config.ts
-            drizzle/
+            src/database/migrations/
           retention-days: 1
 
   # ─────────────────────────────────────────
@@ -107,8 +107,17 @@ jobs:
             # Decode and write .env file
             echo "${{ secrets.APP_ENV_VARS }}" | base64 -d > .env
 
-            # Install all dependencies (needed for drizzle-kit migrations)
-            npm ci
+            # Only reinstall if package-lock.json changed
+            LOCK_HASH=$(md5sum package-lock.json | awk '{print $1}')
+            PREV_HASH=$(cat .npm-lock-hash 2>/dev/null || echo "")
+
+            if [ "$LOCK_HASH" != "$PREV_HASH" ]; then
+              echo "Dependencies changed, running npm ci..."
+              npm ci
+              echo "$LOCK_HASH" > .npm-lock-hash
+            else
+              echo "Dependencies unchanged, skipping npm ci"
+            fi
 
             # Run Drizzle migrations
             npx drizzle-kit migrate --config=drizzle.config.ts
