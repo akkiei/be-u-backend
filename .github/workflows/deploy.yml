@@ -95,6 +95,8 @@ jobs:
           ssh -p ${{ secrets.ORACLE_PORT }} \
             -o ServerAliveInterval=30 \
             -o ServerAliveCountMax=20 \
+            -o LogLevel=QUIET \
+            -tt \
             ${{ secrets.ORACLE_USER }}@${{ secrets.ORACLE_HOST }} << 'EOF'
             set -e
 
@@ -107,17 +109,18 @@ jobs:
             # Decode and write .env file
             echo "${{ secrets.APP_ENV_VARS }}" | base64 -d > .env
 
-            # Only reinstall if package-lock.json changed
-            LOCK_HASH=$(md5sum package-lock.json | awk '{print $1}')
-            PREV_HASH=$(cat .npm-lock-hash 2>/dev/null || echo "")
+            echo "✅ Connected to server"
+              echo "📦 Checking dependencies..."
+              LOCK_HASH=$(md5sum package-lock.json | awk '{print $1}')
+              PREV_HASH=$(cat .npm-lock-hash 2>/dev/null || echo "")
 
-            if [ "$LOCK_HASH" != "$PREV_HASH" ]; then
-              echo "Dependencies changed, running npm ci..."
-              npm ci
-              echo "$LOCK_HASH" > .npm-lock-hash
-            else
-              echo "Dependencies unchanged, skipping npm ci"
-            fi
+              if [ "$LOCK_HASH" != "$PREV_HASH" ]; then
+                echo "🔄 Dependencies changed, running npm ci..."
+                npm ci --progress=true 2>&1
+                echo "$LOCK_HASH" > .npm-lock-hash
+              else
+                echo "⚡ Dependencies unchanged, skipping npm ci"
+              fi
 
             # Run Drizzle migrations
             npx drizzle-kit migrate --config=drizzle.config.ts
@@ -138,4 +141,4 @@ jobs:
             -o ServerAliveInterval=30 \
             -o ServerAliveCountMax=20 \
             ${{ secrets.ORACLE_USER }}@${{ secrets.ORACLE_HOST }} \
-            "pm2 show ${{ env.APP_NAME }} | grep 'status'"
+            "export NVM_DIR=\$HOME/.nvm && [ -s \$NVM_DIR/nvm.sh ] && \. \$NVM_DIR/nvm.sh && pm2 show ${{ env.APP_NAME }} | grep 'status'"

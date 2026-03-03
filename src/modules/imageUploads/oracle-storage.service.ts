@@ -2,6 +2,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as objectStorage from 'oci-objectstorage';
 import * as common from 'oci-common';
+import { Buffer } from 'node:buffer';
 
 @Injectable()
 export class OracleStorageService {
@@ -12,7 +13,10 @@ export class OracleStorageService {
   private readonly region = process.env.OCI_REGION!;
 
   constructor() {
-    let privateKey = process.env.OCI_PRIVATE_KEY || '';
+    let privateKey = Buffer.from(
+      process.env.OCI_PRIVATE_KEY_BASE64 as string,
+      'base64',
+    ).toString('utf-8');
 
     // Remove surrounding quotes if present
     if (
@@ -42,7 +46,7 @@ export class OracleStorageService {
       process.env.OCI_USER!,
       process.env.OCI_FINGERPRINT!,
       privateKey,
-      null, // Passphrase (null if key is not encrypted)
+      null as unknown as string,
       common.Region.fromRegionId(this.region),
     );
 
@@ -55,15 +59,15 @@ export class OracleStorageService {
 
   async uploadObject(
     key: string,
-    buffer: Buffer,
+    data: Buffer,
     mimeType: string,
   ): Promise<string> {
     await this.client.putObject({
       namespaceName: this.namespace,
       bucketName: this.bucket,
       objectName: key,
-      putObjectBody: buffer,
-      contentLength: buffer.length,
+      putObjectBody: data,
+      contentLength: data.length,
       contentType: mimeType,
     });
 
