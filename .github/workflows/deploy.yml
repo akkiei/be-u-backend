@@ -108,7 +108,7 @@ jobs:
             npm ci --omit=dev
 
             # Run Drizzle migrations
-            npx drizzle-kit migrate
+            npx drizzle-kit migrate --config=drizzle.config.ts
 
             # Reload app with PM2 (zero downtime)
             pm2 reload ${{ env.APP_NAME }} --update-env || pm2 start ecosystem.config.js
