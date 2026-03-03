@@ -92,6 +92,11 @@ jobs:
         run: |
           ssh -p ${{ secrets.ORACLE_PORT }} ${{ secrets.ORACLE_USER }}@${{ secrets.ORACLE_HOST }} << 'EOF'
             set -e
+
+            # Load NVM so npm/node/pm2 are available in non-interactive SSH sessions
+            export NVM_DIR="$HOME/.nvm"
+            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+
             cd ${{ env.APP_DIR }}
 
             # Decode and write .env file
