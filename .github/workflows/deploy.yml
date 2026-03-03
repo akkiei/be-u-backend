@@ -53,6 +53,8 @@ jobs:
             package.json
             package-lock.json
             ecosystem.config.js
+            drizzle.config.ts
+            drizzle/
           retention-days: 1
 
   # ─────────────────────────────────────────
