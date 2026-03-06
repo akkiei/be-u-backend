@@ -17,9 +17,10 @@ export const images = pgTable('images', {
   uploadedAt: timestamp('uploaded_at').defaultNow(),
 });
 
-export const imagesRelations = relations(images, ({ one }) => ({
+export const imagesRelations = relations(images, ({ one, many }) => ({
   user: one(users, { fields: [images.userId], references: [users.id] }),
-  scan: one(scanHistory),
+  scansAsFront: many(scanHistory, { relationName: 'frontImage' }),
+  scansAsBack: many(scanHistory, { relationName: 'backImage' }),
 }));
 
 export type Image = typeof images.$inferSelect;

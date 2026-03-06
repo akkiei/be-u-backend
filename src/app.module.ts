@@ -6,6 +6,7 @@ import { UsersModule } from './modules/users/users.module';
 import { ClerkAuthGuard } from './core/guards/clerk-auth.guard';
 import { AttachUserInterceptor } from './core/interceptors/attach-user.interceptor';
 import { UploadModule } from './modules/imageUploads/upload.module';
+import { ScansModule } from './modules/scans/scans.module';
 import { AppController } from './app.controller';
 
 @Module({
@@ -14,6 +15,7 @@ import { AppController } from './app.controller';
     AuthModule,
     UsersModule,
     UploadModule,
+    ScansModule,
     // ... other modules
   ],
   controllers: [AppController],

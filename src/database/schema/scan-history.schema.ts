@@ -18,9 +18,14 @@ export const scanHistory = pgTable('scan_history', {
   imageId: uuid('image_id').references(() => images.id, {
     onDelete: 'set null',
   }),
+  backImageId: uuid('back_image_id').references(() => images.id, {
+    onDelete: 'set null',
+  }),
   productId: uuid('product_id').references(() => products.id, {
     onDelete: 'set null',
   }), // null for prescriptions
+  frontImageUrl: text('front_image_url'),
+  backImageUrl: text('back_image_url'),
   scanType: text('scan_type').notNull(), // 'label' | 'ingredients' | 'prescription'
   rawOcrText: text('raw_ocr_text'),
   parsedResult: jsonb('parsed_result').notNull(),
@@ -34,6 +39,12 @@ export const scanHistoryRelations = relations(scanHistory, ({ one, many }) => ({
   image: one(images, {
     fields: [scanHistory.imageId],
     references: [images.id],
+    relationName: 'frontImage',
+  }),
+  backImage: one(images, {
+    fields: [scanHistory.backImageId],
+    references: [images.id],
+    relationName: 'backImage',
   }),
   product: one(products, {
     fields: [scanHistory.productId],

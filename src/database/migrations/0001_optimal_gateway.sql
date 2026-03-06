@@ -1,0 +1,2 @@
+ALTER TABLE "scan_history" ADD COLUMN "back_image_id" uuid;--> statement-breakpoint
+ALTER TABLE "scan_history" ADD CONSTRAINT "scan_history_back_image_id_images_id_fk" FOREIGN KEY ("back_image_id") REFERENCES "public"."images"("id") ON DELETE set null ON UPDATE no action;
