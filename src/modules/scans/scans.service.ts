@@ -416,9 +416,7 @@ export class ScansService {
         text: truncatedText,
       }),
     );
-    this.logger.log(
-      `LLM analysis complete for scan=${scanId} :${JSON.stringify(llmResult.summary)}`,
-    );
+    this.logger.log(`LLM analysis complete for scan=${scanId}`);
 
     // Update scan_history.parsedResult with LLM insights
     await db
