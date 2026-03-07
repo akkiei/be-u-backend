@@ -21,6 +21,7 @@ const ALLOWED_MIME_TYPES = [
   'image/jpg',
   'image/png',
   'image/heic',
+  'application/pdf',
 ];
 
 @Controller('upload')

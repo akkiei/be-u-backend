@@ -92,6 +92,21 @@ export class OracleStorageService {
     return `https://objectstorage.${this.region}.oraclecloud.com${response.preauthenticatedRequest.accessUri}`;
   }
 
+  async getObject(key: string): Promise<Buffer> {
+    const response = await this.client.getObject({
+      namespaceName: this.namespace,
+      bucketName: this.bucket,
+      objectName: key,
+    });
+
+    const readable = response.value as import('stream').Readable;
+    const chunks: Buffer[] = [];
+    for await (const chunk of readable) {
+      chunks.push(Buffer.from(chunk as Buffer));
+    }
+    return Buffer.concat(chunks);
+  }
+
   async deleteObject(key: string): Promise<void> {
     await this.client.deleteObject({
       namespaceName: this.namespace,

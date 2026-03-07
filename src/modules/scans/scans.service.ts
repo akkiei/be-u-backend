@@ -1,4 +1,5 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { HttpService } from '@nestjs/axios';
 import { DatabaseService } from '../../database/database.service';
 import { OracleStorageService } from '../imageUploads/oracle-storage.service';
 import { products } from '../../database/schema/products.schema';
@@ -8,9 +9,13 @@ import { scannedIngredients } from '../../database/schema/ingredients.schema';
 import { scannedPrescriptions } from '../../database/schema/prescriptions.schema';
 import { medications } from '../../database/schema/medications.schema';
 import { images } from '../../database/schema/images.schema';
-import { eq, and, inArray, desc, aliasedTable } from 'drizzle-orm';
+import { userSummaries } from '../../database/schema/user-summaries.schema';
+import { eq, and, inArray, desc, aliasedTable, sql } from 'drizzle-orm';
+import { PDFParse } from 'pdf-parse';
+import { firstValueFrom } from 'rxjs';
 import { ProductScanDto } from './dto/product-scan.dto';
 import { PrescriptionScanDto } from './dto/prescription-scan.dto';
+import { LabReportScanDto } from './dto/lab-report-scan.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { UpdateLabelDto } from './dto/update-label.dto';
 import { UpdateIngredientDto } from './dto/update-ingredient.dto';
@@ -24,6 +29,7 @@ export class ScansService {
   constructor(
     private readonly dbService: DatabaseService,
     private readonly oracleStorage: OracleStorageService,
+    private readonly httpService: HttpService,
   ) {}
 
   async getScans(userId: string) {
@@ -119,9 +125,11 @@ export class ScansService {
         parsedResult: scan.parsedResult,
         confidence: scan.confidence,
         scannedAt: scan.scannedAt,
-        imageUrl: frontSignedUrl ?? (scan.frontImageUrl as string | null),
-        frontImageUrl: frontSignedUrl ?? (scan.frontImageUrl as string | null),
-        backImageUrl: backSignedUrl ?? (scan.backImageUrl as string | null),
+        imageUrl: frontSignedUrl ?? (scan.frontImageUrl as string),
+        frontImageUrl: frontSignedUrl ?? (scan.frontImageUrl as string),
+        backImageUrl: backSignedUrl ?? (scan.backImageUrl as string),
+        fileUrl: (scan.fileUrl as string) ?? null,
+        fileName: (scan.fileName as string) ?? null,
         product: product || null,
         label,
         ingredients: scanIngredients.length ? scanIngredients : null,
@@ -306,6 +314,171 @@ export class ScansService {
 
       return { scan, prescription };
     });
+  }
+
+  async createLabReportScan(userId: string, dto: LabReportScanDto) {
+    const db = this.dbService.db;
+
+    // 1. Parse PDF text if fileUrl is provided
+    let rawText: string | null = null;
+    let parsedResult: Record<string, any> = {};
+
+    if (dto.fileUrl) {
+      try {
+        const [imageRecord] = await db
+          .select({ oracleKey: images.oracleKey })
+          .from(images)
+          .where(and(eq(images.userId, userId), eq(images.url, dto.fileUrl)))
+          .limit(1);
+
+        if (imageRecord) {
+          const pdfBuffer = await this.oracleStorage.getObject(
+            imageRecord.oracleKey,
+          );
+          const parser = new PDFParse({ data: new Uint8Array(pdfBuffer) });
+          const textResult = await parser.getText();
+          rawText = textResult.text;
+          parsedResult = {
+            category: dto.category ?? 'general',
+            pageCount: textResult.total,
+            rawText,
+          };
+          // this.logger.log(
+          //   `PDF parsed: ${textResult.total} pages, ${rawText.length} chars`,
+          // );
+          await parser.destroy();
+        }
+      } catch (err) {
+        this.logger.warn(`PDF parsing failed for ${dto.fileUrl}: ${err}`);
+      }
+    }
+
+    // 2. Insert scan_history
+    const [scan] = await db
+      .insert(scanHistory)
+      .values({
+        userId,
+        scanType: dto.scanType ?? 'lab_report',
+        fileUrl: dto.fileUrl ?? null,
+        fileName: dto.fileName ?? null,
+        rawOcrText: rawText,
+        parsedResult,
+      })
+      .returning();
+
+    this.logger.log(`Lab report scan created: scan=${scan.id}`);
+
+    // 3. Fire LLM analysis in background (non-blocking)
+    if (rawText) {
+      this.processLabReportWithLLM(scan.id, userId, rawText, dto).catch(
+        (err) => {
+          const error = err as Error & {
+            cause?: Error;
+            response?: { data: unknown; status: number };
+          };
+          this.logger.error(
+            `Background LLM processing failed for scan=${scan.id}: ${error.message}`,
+            error.response
+              ? `Status: ${error.response.status}, Body: ${JSON.stringify(error.response.data)}`
+              : error.cause
+                ? `Cause: ${error.cause.message}`
+                : error.stack,
+          );
+        },
+      );
+    }
+
+    return { scan };
+  }
+
+  private async processLabReportWithLLM(
+    scanId: string,
+    userId: string,
+    rawText: string,
+    dto: LabReportScanDto,
+  ) {
+    const llmUrl = process.env.LLM_SERVER_URL;
+    if (!llmUrl) {
+      this.logger.warn(
+        'LLM_SERVER_URL not configured, skipping lab report analysis',
+      );
+      return;
+    }
+
+    const db = this.dbService.db;
+    const url = `${llmUrl.trim()}/lab-report`;
+    this.logger.log(`Calling LLM server at: ${url}`);
+
+    // Call LLM server (max 10000 chars)
+    const truncatedText = rawText.slice(0, 10000);
+    const { data: llmResult } = await firstValueFrom(
+      this.httpService.post<Record<string, unknown>>(url, {
+        text: truncatedText,
+      }),
+    );
+    this.logger.log(
+      `LLM analysis complete for scan=${scanId} :${JSON.stringify(llmResult.summary)}`,
+    );
+
+    // Update scan_history.parsedResult with LLM insights
+    await db
+      .update(scanHistory)
+      .set({
+        parsedResult: {
+          category: dto.category ?? 'general',
+          rawText,
+          ...llmResult,
+        },
+        confidence: (llmResult.confidence as string) ?? null,
+      })
+      .where(eq(scanHistory.id, scanId));
+
+    this.logger.log(`scan_history updated with LLM result for scan=${scanId}`);
+
+    // Update user_summaries with LLM summary
+    const summary = (llmResult.summary as string) ?? rawText.slice(0, 500);
+    const labReportEntry = {
+      scanId,
+      fileName: dto.fileName ?? null,
+      category: dto.category ?? 'general',
+      textPreview: summary,
+      scannedAt: new Date().toISOString(),
+    };
+    const entryJson = JSON.stringify(labReportEntry);
+
+    try {
+      await db
+        .insert(userSummaries)
+        .values({
+          userId,
+          recentLabReports: sql`jsonb_build_array(${entryJson}::jsonb)`,
+        })
+        .onConflictDoUpdate({
+          target: userSummaries.userId,
+          set: {
+            recentLabReports: sql`(
+              SELECT jsonb_agg(val)
+              FROM (
+                SELECT val
+                FROM jsonb_array_elements(
+                  jsonb_build_array(${entryJson}::jsonb) || COALESCE(user_summaries.recent_lab_reports, '[]'::jsonb)
+                ) AS val
+                LIMIT 5
+              ) sub
+            )`,
+            lastUpdated: sql`now()`,
+          },
+        });
+
+      this.logger.log(
+        `User summary updated with LLM insights for user=${userId}`,
+      );
+    } catch (err) {
+      this.logger.error(
+        `Failed to update user_summaries for user=${userId}: ${(err as Error).message}`,
+        (err as Error).stack,
+      );
+    }
   }
 
   async updateProduct(

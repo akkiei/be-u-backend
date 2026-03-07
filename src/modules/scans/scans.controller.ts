@@ -12,6 +12,7 @@ import { CurrentUser } from '../../core/decorators/current-user.decorator';
 import type { User } from '../../database/schema/users.schema';
 import { ProductScanDto } from './dto/product-scan.dto';
 import { PrescriptionScanDto } from './dto/prescription-scan.dto';
+import { LabReportScanDto } from './dto/lab-report-scan.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { UpdateLabelDto } from './dto/update-label.dto';
 import { UpdateIngredientDto } from './dto/update-ingredient.dto';
@@ -41,6 +42,14 @@ export class ScansController {
     @Body() dto: PrescriptionScanDto,
   ) {
     return this.scansService.createPrescriptionScan(user.id, dto);
+  }
+
+  @Post('lab-report')
+  async createLabReportScan(
+    @CurrentUser() user: User,
+    @Body() dto: LabReportScanDto,
+  ) {
+    return this.scansService.createLabReportScan(user.id, dto);
   }
 
   @Patch('product/:id')

@@ -3,7 +3,7 @@ import { DatabaseService } from '../../database/database.service';
 import { images } from '../../database/schema/images.schema';
 import { eq, and } from 'drizzle-orm';
 import { OracleStorageService } from './oracle-storage.service';
-export type ScanType = 'label' | 'ingredients' | 'prescription';
+export type ScanType = 'label' | 'ingredients' | 'prescription' | 'lab_report';
 
 @Injectable()
 export class UploadService {

@@ -26,7 +26,9 @@ export const scanHistory = pgTable('scan_history', {
   }), // null for prescriptions
   frontImageUrl: text('front_image_url'),
   backImageUrl: text('back_image_url'),
-  scanType: text('scan_type').notNull(), // 'label' | 'ingredients' | 'prescription'
+  fileUrl: text('file_url'),
+  fileName: text('file_name'),
+  scanType: text('scan_type').notNull(), // 'label' | 'ingredients' | 'prescription' | 'lab_report'
   rawOcrText: text('raw_ocr_text'),
   parsedResult: jsonb('parsed_result').notNull(),
   embedding: vector('embedding', { dimensions: 384 }), // all-MiniLM-L6-v2 embeddings

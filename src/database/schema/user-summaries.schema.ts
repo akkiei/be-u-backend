@@ -10,6 +10,7 @@ export const userSummaries = pgTable('user_summaries', {
   recentFood: jsonb('recent_food').default(sql`'[]'`), // last 10 food scans
   recentMakeup: jsonb('recent_makeup').default(sql`'[]'`), // last 10 makeup scans
   recentPrescriptions: jsonb('recent_prescriptions').default(sql`'[]'`), // last 5 prescriptions
+  recentLabReports: jsonb('recent_lab_reports').default(sql`'[]'`), // last 5 lab report summaries
   flaggedIngredients: text('flagged_ingredients')
     .array()
     .default(sql`'{}'`),
