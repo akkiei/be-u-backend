@@ -3,6 +3,7 @@ import { DatabaseService } from '../../database/database.service';
 import { images } from '../../database/schema/images.schema';
 import { eq, and } from 'drizzle-orm';
 import { OracleStorageService } from './oracle-storage.service';
+import { ImageCompressionService } from './image-compression.service';
 export type ScanType = 'label' | 'ingredients' | 'prescription' | 'lab_report';
 
 @Injectable()
@@ -13,21 +14,35 @@ export class UploadService {
   constructor(
     private readonly db: DatabaseService,
     private readonly oracle: OracleStorageService,
+    private readonly compression: ImageCompressionService,
   ) {}
 
   async uploadImage(
     file: { buffer: Buffer; mimetype: string; size: number },
     userId: string,
-    clerkId: string,
     scanType: ScanType,
     folder?: string,
   ): Promise<{ imageUrl: string; imageId: string }> {
-    const ext = file.mimetype.split('/')[1] ?? 'jpg';
-    const key = `${folder ?? scanType}/${userId}/${Date.now()}.${ext}`;
+    this.logger.log(
+      `Image received: ${file.mimetype} | Original size: ${(file.size / 1024).toFixed(2)}KB`,
+    );
+
+    // Compress image before upload
+    const compressed = await this.compression.compressImage(file.buffer);
+
+    this.logger.log(
+      `Compression complete: ${(compressed.originalSize / 1024).toFixed(2)}KB → ${(compressed.compressedSize / 1024).toFixed(2)}KB | Saved: ${compressed.compressionRatio.toFixed(1)}%`,
+    );
+
+    const key = `${folder ?? scanType}/${userId}/${Date.now()}.jpg`;
 
     this.logger.log(`Uploading to Oracle: ${key}`);
 
-    const url = await this.oracle.uploadObject(key, file.buffer, file.mimetype);
+    const url = await this.oracle.uploadObject(
+      key,
+      compressed.buffer,
+      compressed.mimeType,
+    );
 
     const [record] = await this.db.db
       .insert(images)
@@ -37,8 +52,8 @@ export class UploadService {
         oracleKey: key,
         url,
         scanType,
-        mimeType: file.mimetype,
-        sizeBytes: file.size,
+        mimeType: compressed.mimeType,
+        sizeBytes: compressed.compressedSize,
       })
       .returning();
 

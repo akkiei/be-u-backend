@@ -12,7 +12,6 @@ import {
 import type { FastifyRequest } from 'fastify';
 import { UploadService, ScanType } from './upload.service';
 import { ClerkAuthGuard } from '../../core/guards/clerk-auth.guard';
-import { CurrentClerkId } from '../../core/decorators/current-user.decorator';
 import { CurrentUser } from '../../core/decorators/current-user.decorator';
 import type { User } from '../../database/schema/users.schema';
 
@@ -30,11 +29,7 @@ export class UploadController {
   constructor(private readonly uploadService: UploadService) {}
 
   @Post()
-  async upload(
-    @Req() req: FastifyRequest,
-    @CurrentUser() user: User,
-    @CurrentClerkId() clerkId: string,
-  ) {
+  async upload(@Req() req: FastifyRequest, @CurrentUser() user: User) {
     if (!req.isMultipart()) {
       throw new BadRequestException('Request must be multipart/form-data');
     }
@@ -73,7 +68,6 @@ export class UploadController {
     return this.uploadService.uploadImage(
       { buffer: fileBuffer, mimetype: mimeType, size: sizeBytes },
       user.id,
-      clerkId,
       scanType,
       folder,
     );
