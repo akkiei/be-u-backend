@@ -27,14 +27,33 @@ export class UploadService {
       `Image received: ${file.mimetype} | Original size: ${(file.size / 1024).toFixed(2)}KB`,
     );
 
-    // Compress image before upload
-    const compressed = await this.compression.compressImage(file.buffer);
+    // Skip compression for lab_report PDFs
+    const isPdf = file.mimetype === 'application/pdf';
+    const skipCompression = isPdf && scanType === 'lab_report';
 
-    this.logger.log(
-      `Compression complete: ${(compressed.originalSize / 1024).toFixed(2)}KB → ${(compressed.compressedSize / 1024).toFixed(2)}KB | Saved: ${compressed.compressionRatio.toFixed(1)}%`,
-    );
+    let compressed;
+    let fileExtension = 'jpg';
 
-    const key = `${folder ?? scanType}/${userId}/${Date.now()}.jpg`;
+    if (skipCompression) {
+      this.logger.log('Skipping compression for lab_report PDF');
+      compressed = {
+        buffer: file.buffer,
+        mimeType: file.mimetype,
+        originalSize: file.size,
+        compressedSize: file.size,
+        compressionRatio: 0,
+      };
+      fileExtension = 'pdf';
+    } else {
+      // Compress image before upload
+      compressed = await this.compression.compressImage(file.buffer);
+
+      this.logger.log(
+        `Compression complete: ${(compressed.originalSize / 1024).toFixed(2)}KB → ${(compressed.compressedSize / 1024).toFixed(2)}KB | Saved: ${compressed.compressionRatio.toFixed(1)}%`,
+      );
+    }
+
+    const key = `${folder ?? scanType}/${userId}/${Date.now()}.${fileExtension}`;
 
     this.logger.log(`Uploading to Oracle: ${key}`);
 

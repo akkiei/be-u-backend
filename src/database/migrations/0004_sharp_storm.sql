@@ -1,0 +1,1 @@
+ALTER TABLE "scan_history" ADD COLUMN "llm_summary" text;

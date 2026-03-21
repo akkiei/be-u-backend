@@ -117,13 +117,24 @@ export class ScansService {
         ? (preSignedMap.get(backImage.oracleKey) ?? null)
         : null;
 
+      // Conditionally include rawOcrText and parsedResult based on LLM availability
+      const hasLLMResult = scan.llmSummary != null;
       const result = {
         id: scan.id,
         userId: scan.userId,
         scanType: scan.scanType,
-        rawOcrText: scan.rawOcrText,
-        parsedResult: scan.parsedResult,
+        ...(hasLLMResult
+          ? {
+              // LLM has processed: include only parsed result
+              parsedResult: scan.parsedResult,
+            }
+          : {
+              // LLM not yet processed: include raw OCR text
+              rawOcrText: scan.rawOcrText,
+              parsedResult: scan.parsedResult,
+            }),
         confidence: scan.confidence,
+        llmSummary: scan.llmSummary ?? null,
         scannedAt: scan.scannedAt,
         imageUrl: frontSignedUrl ?? (scan.frontImageUrl as string),
         frontImageUrl: frontSignedUrl ?? (scan.frontImageUrl as string),
@@ -273,26 +284,44 @@ export class ScansService {
           rawOcrText: dto.rawOcrText ?? null,
           parsedResult: dto.parsedResult ?? {},
           confidence: dto.confidence ?? null,
+          llmSummary: (dto.parsedResult?.summary as string) ?? null,
         })
         .returning();
 
-      // 3. Insert scanned_prescriptions
+      // 3. Extract prescription data (handle both flat and nested structures)
+      const prescriptionData = dto.prescription;
+      const doctorName: string | null =
+        prescriptionData.doctor_name ?? prescriptionData.doctor?.name ?? null;
+      const doctorSpecialization: string | null =
+        prescriptionData.doctor_specialization ??
+        prescriptionData.doctor?.specialization ??
+        null;
+      const doctorContact: string | null =
+        prescriptionData.doctor_contact ??
+        prescriptionData.doctor?.contact ??
+        null;
+      const patientName: string | null =
+        prescriptionData.patient_name ?? prescriptionData.patient?.name ?? null;
+      const prescriptionDate: string | null =
+        prescriptionData.prescription_date ?? prescriptionData.date ?? null;
+
+      // 4. Insert scanned_prescriptions
       const [prescription] = await tx
         .insert(scannedPrescriptions)
         .values({
           scanId: scan.id,
           userId,
-          hospitalName: dto.prescription.hospital_name ?? null,
-          doctorName: dto.prescription.doctor_name ?? null,
-          doctorSpecialization: dto.prescription.doctor_specialization ?? null,
-          doctorContact: dto.prescription.doctor_contact ?? null,
-          patientName: dto.prescription.patient_name ?? null,
-          diagnosis: dto.prescription.diagnosis ?? null,
-          prescriptionDate: dto.prescription.prescription_date ?? null,
+          hospitalName: prescriptionData.hospital_name ?? null,
+          doctorName,
+          doctorSpecialization,
+          doctorContact,
+          patientName,
+          diagnosis: prescriptionData.diagnosis ?? null,
+          prescriptionDate,
         })
         .returning();
 
-      // 4. Insert medications (one row per med)
+      // 5. Insert medications (one row per med)
       if (dto.medications?.length) {
         await tx.insert(medications).values(
           dto.medications.map((med) => ({
@@ -409,15 +438,16 @@ export class ScansService {
     const url = `${llmUrl.trim()}/lab-report`;
     this.logger.log(`Calling LLM server at: ${url}`);
 
-    // Call LLM server (max 10000 chars)
-    const truncatedText = rawText.slice(0, 10000);
+    // Call LLM server (max 50000 chars)
+    const truncatedText = rawText.slice(0, 50000);
     const { data: llmResult } = await firstValueFrom(
       this.httpService.post<Record<string, unknown>>(url, {
         text: truncatedText,
       }),
     );
-    this.logger.log(`LLM analysis complete for scan=${scanId}`);
-
+    this.logger.debug(
+      `LLM result for scan=${scanId}: ${JSON.stringify(llmResult)}`,
+    );
     // Update scan_history.parsedResult with LLM insights
     await db
       .update(scanHistory)
@@ -428,6 +458,7 @@ export class ScansService {
           ...llmResult,
         },
         confidence: (llmResult.confidence as string) ?? null,
+        llmSummary: (llmResult.summary as string) ?? null,
       })
       .where(eq(scanHistory.id, scanId));
 

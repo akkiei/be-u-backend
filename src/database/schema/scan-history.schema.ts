@@ -33,6 +33,7 @@ export const scanHistory = pgTable('scan_history', {
   parsedResult: jsonb('parsed_result').notNull(),
   embedding: vector('embedding', { dimensions: 384 }), // all-MiniLM-L6-v2 embeddings
   confidence: text('confidence'), // 'high' | 'medium' | 'low'
+  llmSummary: text('llm_summary'),
   scannedAt: timestamp('scanned_at').defaultNow(),
 });
 

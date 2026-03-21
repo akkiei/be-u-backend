@@ -7,11 +7,52 @@ import {
   ValidateNested,
 } from 'class-validator';
 
+class DoctorDto {
+  @IsOptional()
+  @IsString()
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  contact?: string;
+
+  @IsOptional()
+  @IsString()
+  specialization?: string;
+}
+
+class PatientDto {
+  @IsOptional()
+  @IsString()
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  age?: string;
+
+  @IsOptional()
+  @IsString()
+  gender?: string;
+}
+
 class PrescriptionDto {
   @IsOptional()
   @IsString()
   hospital_name?: string;
 
+  @IsOptional()
+  @IsString()
+  diagnosis?: string;
+
+  @IsOptional()
+  @IsString()
+  date?: string;
+
+  @IsOptional()
+  @IsString()
+  confidence?: string;
+
+  // Support flat fields (legacy)
   @IsOptional()
   @IsString()
   doctor_name?: string;
@@ -30,11 +71,18 @@ class PrescriptionDto {
 
   @IsOptional()
   @IsString()
-  diagnosis?: string;
+  prescription_date?: string;
+
+  // Support nested objects (from LLM)
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => DoctorDto)
+  doctor?: DoctorDto;
 
   @IsOptional()
-  @IsString()
-  prescription_date?: string;
+  @ValidateNested()
+  @Type(() => PatientDto)
+  patient?: PatientDto;
 }
 
 class MedicationDto {
