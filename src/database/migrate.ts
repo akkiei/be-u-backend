@@ -17,27 +17,40 @@ async function main() {
     });
 
     try {
+      console.log(
+        `[migrate] Attempt ${attempt}/${MAX_RETRIES} — connecting to DB...`,
+      );
+      await pool.query('SELECT 1');
+      console.log('[migrate] Connection ok');
+
       const db = drizzle(pool);
 
+      console.log('[migrate] Enabling extensions...');
       await pool.query(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`);
       await pool.query(`CREATE EXTENSION IF NOT EXISTS vector`);
-      console.log('Extensions enabled');
+      console.log('[migrate] Extensions enabled');
 
+      console.log('[migrate] Running migrations...');
       await migrate(db, { migrationsFolder: './src/database/migrations' });
-      console.log('Migrations complete');
+      console.log('[migrate] Migrations complete');
 
       await pool.end();
       return;
     } catch (err) {
+      const error = err as Error & { code?: string; cause?: Error };
+      console.error(`[migrate] Attempt ${attempt}/${MAX_RETRIES} failed`);
+      console.error(`[migrate] Error: ${error.message}`);
+      console.error(`[migrate] Code: ${error.code ?? 'n/a'}`);
+      if (error.cause) console.error(`[migrate] Cause: ${error.cause.message}`);
+      console.error(`[migrate] Stack: ${error.stack}`);
+
       await pool.end().catch(() => {});
-      console.warn(
-        `Migration attempt ${attempt}/${MAX_RETRIES} failed: ${(err as Error).message}`,
-      );
+
       if (attempt === MAX_RETRIES) {
-        console.error('All migration attempts exhausted');
+        console.error('[migrate] All attempts exhausted, giving up');
         throw err;
       }
-      console.log(`Retrying in ${RETRY_DELAY_MS / 1000}s...`);
+      console.log(`[migrate] Retrying in ${RETRY_DELAY_MS / 1000}s...`);
       await new Promise((res) => setTimeout(res, RETRY_DELAY_MS));
     }
   }

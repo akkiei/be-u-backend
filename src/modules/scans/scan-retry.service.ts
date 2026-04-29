@@ -91,7 +91,11 @@ export class ScanRetryService {
           const [contextBlock, ragBlock] = await Promise.all([
             this.scansService.buildUserContextBlock(scan.userId),
             this.scansService
-              .buildRagContextBlock(scan.userId, scan.rawOcrText as string, scan.id)
+              .buildRagContextBlock(
+                scan.userId,
+                scan.rawOcrText as string,
+                scan.id,
+              )
               .catch(() => ''),
           ]);
           const prefix = contextBlock + ragBlock;
@@ -146,13 +150,17 @@ export class ScanRetryService {
   @Cron(CronExpression.EVERY_HOUR)
   async retryFailedEmbeddings() {
     if (this.isEmbeddingRunning) {
-      this.logger.warn('Embedding retry job already running, skipping this tick');
+      this.logger.warn(
+        'Embedding retry job already running, skipping this tick',
+      );
       return;
     }
 
     const embedUrl = process.env.EMBEDDING_SERVER_URL;
     if (!embedUrl) {
-      this.logger.warn('EMBEDDING_SERVER_URL not set, skipping embedding retry');
+      this.logger.warn(
+        'EMBEDDING_SERVER_URL not set, skipping embedding retry',
+      );
       return;
     }
 
@@ -168,10 +176,7 @@ export class ScanRetryService {
         })
         .from(scanHistory)
         .where(
-          and(
-            isNull(scanHistory.embedding),
-            isNotNull(scanHistory.rawOcrText),
-          ),
+          and(isNull(scanHistory.embedding), isNotNull(scanHistory.rawOcrText)),
         )
         .limit(BATCH_SIZE);
 
