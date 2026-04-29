@@ -36,6 +36,20 @@
       "when": 1774027296184,
       "tag": "0004_sharp_storm",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1777187916166,
+      "tag": "0005_eminent_the_order",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1777187916167,
+      "tag": "0006_vector_index",
+      "breakpoints": true
     }
   ]
 }

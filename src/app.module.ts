@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { ScheduleModule } from '@nestjs/schedule';
 import { DatabaseModule } from './database/database.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
@@ -7,16 +8,18 @@ import { ClerkAuthGuard } from './core/guards/clerk-auth.guard';
 import { AttachUserInterceptor } from './core/interceptors/attach-user.interceptor';
 import { UploadModule } from './modules/imageUploads/upload.module';
 import { ScansModule } from './modules/scans/scans.module';
+import { LoggerModule } from './core/logger/logger.module';
 import { AppController } from './app.controller';
 
 @Module({
   imports: [
+    ScheduleModule.forRoot(),
     DatabaseModule, // global — no need to import in other modules
     AuthModule,
     UsersModule,
     UploadModule,
     ScansModule,
-    // ... other modules
+    LoggerModule,
   ],
   controllers: [AppController],
   providers: [

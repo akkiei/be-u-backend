@@ -10,7 +10,7 @@ import {
 
 class ProductDto {
   @IsString()
-  product_name: string;
+  product_name!: string;
 
   @IsOptional()
   @IsString()
@@ -30,11 +30,19 @@ class LabelDto {
   @IsArray()
   @IsString({ each: true })
   warnings?: string[];
+
+  @IsOptional()
+  @IsString()
+  expiry_date?: string;
+
+  @IsOptional()
+  @IsString()
+  batch_info?: string;
 }
 
 class IngredientDto {
   @IsString()
-  name: string;
+  name!: string;
 
   @IsOptional()
   @IsString()
@@ -47,7 +55,7 @@ class IngredientDto {
 
 export class ProductScanDto {
   @IsString()
-  scanType: string;
+  scanType!: string;
 
   @IsOptional()
   @IsString()
@@ -75,7 +83,7 @@ export class ProductScanDto {
 
   @ValidateNested()
   @Type(() => ProductDto)
-  product: ProductDto;
+  product!: ProductDto;
 
   @IsOptional()
   @ValidateNested()

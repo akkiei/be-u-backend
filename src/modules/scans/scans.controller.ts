@@ -28,6 +28,14 @@ export class ScansController {
     return this.scansService.getScans(user.id);
   }
 
+  @Get(':id')
+  async getScanDetail(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: User,
+  ) {
+    return this.scansService.getScanDetail(id, user.id);
+  }
+
   @Post('product')
   async createProductScan(
     @CurrentUser() user: User,

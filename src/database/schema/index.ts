@@ -11,3 +11,4 @@ export * from './prescriptions.schema';
 export * from './medications.schema';
 export * from './allergen-flags.schema';
 export * from './recommendations.schema';
+export * from './logs.schema';

@@ -32,7 +32,12 @@ export class AuthService {
     if (existing) {
       this.logger.log(`User already synced:`);
       this.logger.log(existing);
-      return { user: existing, isNew: false };
+      const [profile] = await db
+        .select()
+        .from(userProfiles)
+        .where(eq(userProfiles.userId, existing.id))
+        .limit(1);
+      return { user: existing, profile: profile ?? null, isNew: false };
     }
     this.logger.log(`User NOT synced: ${clerkId}`);
 
@@ -54,24 +59,19 @@ export class AuthService {
         .returning();
 
       // 2. create empty profile row
-      await tx.insert(userProfiles).values({
-        userId: newUser.id,
-      });
+      const [newProfile] = await tx
+        .insert(userProfiles)
+        .values({ userId: newUser.id })
+        .returning();
 
       // 3. create empty summary row
-      await tx.insert(userSummaries).values({
-        userId: newUser.id,
-      });
-      this.logger.log('NEW USR: ');
+      await tx.insert(userSummaries).values({ userId: newUser.id });
 
-      this.logger.log(existing);
-
-      return newUser;
+      return { user: newUser, profile: newProfile };
     });
 
     this.logger.log(`New user synced: ${clerkId}`);
-    this.logger.log(result);
-    return { user: result, isNew: true };
+    return { user: result.user, profile: result.profile, isNew: true };
   }
 
   // Returns DB user by clerk_id — used internally by AttachUserInterceptor

@@ -31,7 +31,7 @@ export const scanHistory = pgTable('scan_history', {
   scanType: text('scan_type').notNull(), // 'label' | 'ingredients' | 'prescription' | 'lab_report'
   rawOcrText: text('raw_ocr_text'),
   parsedResult: jsonb('parsed_result').notNull(),
-  embedding: vector('embedding', { dimensions: 384 }), // all-MiniLM-L6-v2 embeddings
+  embedding: vector('embedding', { dimensions: 768 }), // nomic-embed-text embeddings
   confidence: text('confidence'), // 'high' | 'medium' | 'low'
   llmSummary: text('llm_summary'),
   scannedAt: timestamp('scanned_at').defaultNow(),

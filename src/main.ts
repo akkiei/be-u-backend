@@ -6,12 +6,15 @@ import {
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 import multipart from '@fastify/multipart';
+import { DbLoggerService } from './core/logger/db-logger.service';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
     new FastifyAdapter({ logger: true }),
   );
+
+  app.useLogger(app.get(DbLoggerService));
   await app.register(multipart, {
     limits: {
       fileSize: 20 * 1024 * 1024, // 20MB fiel size
