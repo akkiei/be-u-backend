@@ -5,44 +5,42 @@ import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { Pool } from 'pg';
 
 const MAX_RETRIES = 5;
-const RETRY_DELAY_MS = 3000;
+const RETRY_DELAY_MS = 5000;
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  connectionTimeoutMillis: 10000,
-});
-
-async function waitForDb(): Promise<void> {
+async function main() {
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    const pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      connectionTimeoutMillis: 15000,
+      idleTimeoutMillis: 30000,
+      max: 1,
+    });
+
     try {
-      await pool.query('SELECT 1');
-      console.log('Database connection established');
+      const db = drizzle(pool);
+
+      await pool.query(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`);
+      await pool.query(`CREATE EXTENSION IF NOT EXISTS vector`);
+      console.log('Extensions enabled');
+
+      await migrate(db, { migrationsFolder: './src/database/migrations' });
+      console.log('Migrations complete');
+
+      await pool.end();
       return;
     } catch (err) {
+      await pool.end().catch(() => {});
       console.warn(
-        `DB connection attempt ${attempt}/${MAX_RETRIES} failed: ${(err as Error).message}`,
+        `Migration attempt ${attempt}/${MAX_RETRIES} failed: ${(err as Error).message}`,
       );
-      if (attempt === MAX_RETRIES) throw err;
+      if (attempt === MAX_RETRIES) {
+        console.error('All migration attempts exhausted');
+        throw err;
+      }
+      console.log(`Retrying in ${RETRY_DELAY_MS / 1000}s...`);
       await new Promise((res) => setTimeout(res, RETRY_DELAY_MS));
     }
   }
-}
-
-async function main() {
-  await waitForDb();
-
-  const db = drizzle(pool);
-
-  // enable extensions before running migrations
-  // this is required for vector db column
-  await pool.query(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`);
-  await pool.query(`CREATE EXTENSION IF NOT EXISTS vector`);
-  console.log('Extensions enabled');
-
-  await migrate(db, { migrationsFolder: './src/database/migrations' });
-  console.log('Migrations complete');
-
-  await pool.end();
 }
 
 main().catch((err) => {
